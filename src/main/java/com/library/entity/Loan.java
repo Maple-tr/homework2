@@ -12,8 +12,9 @@ import java.time.LocalDateTime;
 @Table(name = "loan")
 public class Loan extends BaseEntity {
 
-    private String bookCopyId; // 为了 JPA 方便，先直接存 ID
-    private String userId;     // 先直接存用户 ID
+    private String bookCopyId; // 副本ID
+    private String bookId;     // 图书ID（新增，方便查询）
+    private String userId;     // 用户ID
 
     private LocalDateTime borrowDate;
     private LocalDateTime returnDate;

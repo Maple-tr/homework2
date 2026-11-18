@@ -55,6 +55,7 @@ public class LoanService {
         // 4. 生成借阅记录
         Loan loan = new Loan();
         loan.setBookCopyId(copy.getId());
+        loan.setBookId(bookId);
         loan.setUserId(user.getId());
         loan.setBorrowDate(LocalDateTime.now());
         loan.setDueDate(LocalDateTime.now().plusDays(book.getDays() != null ? book.getDays() : 30));
@@ -65,41 +66,44 @@ public class LoanService {
     }
 
     /**
-     * 还书逻辑
+     * 还书逻辑 (修复为 2 个参数)
      */
     @Transactional
-    public String returnBook(String copyId, String bookId) {
-        BookCopy copy = bookCopyRepository.findById(copyId).orElse(null);
-        if (copy == null || !copy.getIsBorrowed()) {
-            return "该副本不在借出状态";
+    public String returnBook(String loanId, String copyId) {
+        Loan loan = loanRepository.findById(loanId).orElse(null);
+        if (loan == null || "已还".equals(loan.getStatus())) {
+            return "借阅记录不存在或已归还";
         }
 
-        // 1. 更新副本状态
+        // 1. 更新借阅记录
+        loan.setStatus("已还");
+        loan.setReturnDate(LocalDateTime.now());
+        loanRepository.save(loan);
+
+        // 2. 更新副本状态，并获取它的 bookId
+        BookCopy copy = bookCopyRepository.findById(copyId).orElse(null);
+        if (copy == null) return "副本不存在";
+
         copy.setIsBorrowed(false);
         bookCopyRepository.save(copy);
 
-        // 2. 增加库存
+        String bookId = copy.getBookId();
+
+        // 3. 增加库存
         Book book = bookRepository.findById(bookId).orElse(null);
         if (book != null) {
             book.setStock(book.getStock() + 1);
             bookRepository.save(book);
+
+            // 4. 检查预约队列并通知
+            List<Reservation> reservations = reservationRepository.findByBookIdAndStatusOrderByReserveTimeAsc(bookId, "等待中");
+            if (!reservations.isEmpty()) {
+                Reservation first = reservations.get(0);
+                first.setStatus("已通知");
+                reservationRepository.save(first);
+                MESSAGE_CACHE.put(first.getUserId(), "您预约的图书《" + book.getTitle() + "》已有库存，请尽快借阅！");
+            }
         }
-
-        // 3. 更新借阅记录
-        // (这里为了简化，直接用副本ID查未还记录，实际应有 loanId)
-        // 业务中根据 copyId 查对应的 loan 记录更新状态...
-
-        // 4. 检查预约队列并通知
-        List<Reservation> reservations = reservationRepository.findByBookIdAndStatusOrderByReserveTimeAsc(bookId, "等待中");
-        if (!reservations.isEmpty()) {
-            Reservation first = reservations.get(0);
-            first.setStatus("已通知");
-            reservationRepository.save(first);
-
-            // 模拟推送到前端：存一条消息
-            MESSAGE_CACHE.put(first.getUserId(), "您预约的图书《" + book.getTitle() + "》已有库存，请尽快借阅！");
-        }
-
         return "SUCCESS";
     }
 

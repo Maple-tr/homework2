@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>借阅中心</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/axios/1.6.7/axios.min.js"></script>
+    <style>
+        body { background-color: #f0f2f5; margin: 0; padding: 20px; font-family: 'Microsoft YaHei', sans-serif; }
+        .header { display: flex; justify-content: space-between; margin-bottom: 20px; }
+        .btn-back { padding: 8px 16px; background: #6c757d; color: white; text-decoration: none; border-radius: 6px; }
+
+        .container { display: flex; gap: 20px; }
+        .box { background: #fff; padding: 20px; border-radius: 10px; flex: 1; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        h3 { margin-top: 0; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f8f9fa; }
+
+        .btn { padding: 5px 10px; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;}
+        .btn-borrow { background: #28a745; }
+        .btn-reserve { background: #ffc107; color: #333; }
+        .btn-return { background: #dc3545; }
+        .btn:disabled { background: #ccc; cursor: not-allowed; }
+
+        .tag { padding: 3px 8px; border-radius: 12px; font-size: 12px; color: white;}
+        .tag-wait { background: #ffc107; color: #333; }
+        .tag-success { background: #28a745; }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div class="header">
+        <h2>借阅中心</h2>
+        <a href="index.html" class="btn-back">返回首页</a>
+    </div>
+
+    <div class="container">
+        <!-- 左侧：所有图书 -->
+        <div class="box">
+            <h3>馆藏图书 (点击借阅)</h3>
+            <table>
+                <thead><tr><th>书名</th><th>作者</th><th>库存</th><th>操作</th></tr></thead>
+                <tbody>
+                <tr v-for="book in books" :key="book.id">
+                    <td>{{ book.title }}</td>
+                    <td>{{ book.author }}</td>
+                    <td>{{ book.stock }}</td>
+                    <td>
+                        <button v-if="book.stock > 0" class="btn btn-borrow" @click="borrow(book.id)">借阅</button>
+                        <button v-else class="btn btn-reserve" @click="reserve(book.id)">预约</button>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 右侧：我的借阅记录 -->
+        <div class="box">
+            <h3>我的借阅记录</h3>
+            <table>
+                <thead><tr><th>借阅时间</th><th>应还时间</th><th>状态</th><th>操作</th></tr></thead>
+                <tbody>
+                <tr v-for="loan in myLoans" :key="loan.id">
+                    <td>{{ formatDate(loan.borrowDate) }}</td>
+                    <td>{{ formatDate(loan.dueDate) }}</td>
+                    <td>
+                        <span class="tag" :class="loan.status === '已还' ? 'tag-success' : 'tag-wait'">{{ loan.status }}</span>
+                    </td>
+                    <td>
+                        <button v-if="loan.status === '未还'" class="btn btn-return" @click="returnBook(loan)">还书</button>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    const { createApp, ref, onMounted } = Vue;
+
+    const token = localStorage.getItem('token');
+    if(!token) window.location.href = 'login.html';
+    axios.defaults.headers.common['Authorization'] = token;
+
+    createApp({
+        setup() {
+            const books = ref([]);
+            const myLoans = ref([]);
+
+            // 格式化时间
+            const formatDate = (dateStr) => {
+                if(!dateStr) return '';
+                return dateStr.replace('T', ' ').substring(0, 16);
+            };
+
+            // 加载所有图书
+            const loadBooks = () => {
+                axios.get('http://localhost:8080/api/books/page', { params: { page: 0, size: 50 } })
+                    .then(res => { if(res.data.code === 200) books.value = res.data.data; });
+            };
+
+            // 加载我的借阅
+            const loadMyLoans = () => {
+                axios.get('http://localhost:8080/api/loans/my')
+                    .then(res => { if(res.data.code === 200) myLoans.value = res.data.data; });
+            };
+
+            const borrow = (bookId) => {
+                if(!confirm('确认借阅这本书吗？')) return;
+                axios.post('http://localhost:8080/api/loans/borrow', { bookId })
+                    .then(res => {
+                        alert(res.data.msg);
+                        if(res.data.code === 200) { loadBooks(); loadMyLoans(); }
+                    });
+            };
+
+            const reserve = (bookId) => {
+                if(!confirm('该书暂无库存，是否预约？')) return;
+                axios.post('http://localhost:8080/api/loans/reserve', { bookId })
+                    .then(res => {
+                        alert(res.data.msg);
+                    });
+            };
+
+            const returnBook = (loan) => {
+                if(!confirm('确认归还这本书吗？')) return;
+                // 传 loanId, copyId, bookId 给后端
+                axios.post('http://localhost:8080/api/loans/return', {
+                    loanId: loan.id,
+                    copyId: loan.bookCopyId,
+                    bookId: loan.bookId // 注意：在 Loan 实体里需要有 bookId 字段
+                }).then(res => {
+                    alert(res.data.msg);
+                    if(res.data.code === 200) { loadBooks(); loadMyLoans(); }
+                });
+            };
+
+            onMounted(() => {
+                loadBooks();
+                loadMyLoans();
+            });
+
+            return { books, myLoans, borrow, reserve, returnBook, formatDate };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>
