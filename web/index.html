@@ -78,25 +78,21 @@
                                 { name: '用户信息查询', path: 'user_query.html' },
                                 { name: '图书管理', path: 'book_manage.html' },
                                 { name: '借阅中心', path: 'borrow.html' },
-                                { name: '借阅记录', path: 'loan_records.html' },
                                 { name: '操作日志', path: 'logs.html' }
                             ];
                         } else if (role === '操作员') {
                             menus.value = [
                                 { name: '图书管理', path: 'book_manage.html' },
                                 { name: '借阅中心', path: 'borrow.html' },
-                                { name: '个人借阅查询', path: 'loan_records.html' }
+                                { name: '操作日志', path: 'logs.html' }
                             ];
                         } else if (role === '教师') {
                             menus.value = [
-                                { name: '借阅中心', path: 'borrow.html' },
-                                { name: '个人借阅查询', path: 'loan_records.html' },
-                                { name: '推荐图书', path: 'recommend.html' }
+                                { name: '借阅中心', path: 'borrow.html' }
                             ];
                         } else if (role === '学生') {
                             menus.value = [
-                                { name: '借阅中心', path: 'borrow.html' },
-                                { name: '个人借阅查询', path: 'loan_records.html' }
+                                { name: '借阅中心', path: 'borrow.html' }
                             ];
                         }
                     }
@@ -113,12 +109,25 @@
             };
 
             const go = (path) => {
-                // 这里先简单跳转，如果页面还没开发，会报 404
                 window.location.href = path;
             };
 
             onMounted(() => {
                 loadUserInfo();
+
+                // ==========================================
+                // 开启消息轮询 (每 5 秒请求一次后端，看有没有预约到货通知)
+                // ==========================================
+                setInterval(() => {
+                    axios.get('http://localhost:8080/api/loans/message').then(res => {
+                        if (res.data.code === 200 && res.data.hasMessage) {
+                            // 如果有消息，弹窗提示用户
+                            alert(res.data.msg);
+                        }
+                    }).catch(err => {
+                        // 忽略轮询时的网络报错，避免控制台刷屏
+                    });
+                }, 5000);
             });
 
             return { userInfo, menus, loading, logout, go };
