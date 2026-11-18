@@ -9,6 +9,10 @@ spring:
     username: root
     password: 8848TFTF
     driver-class-name: com.mysql.cj.jdbc.Driver
+    servlet:
+      multipart:
+        max-file-size: 10MB
+        max-request-size: 20MB
   jpa:
     hibernate:
       ddl-auto: update # 如果有新实体，自动在数据库建表，不删旧数据
