@@ -34,7 +34,7 @@ public class BookController {
     @Autowired
     private BookCopyRepository bookCopyRepository;
 
-    // 1. 图书分页 + 多条件查询
+    // 1. 图书分页 + 多条件查询 (包含封面图片)
     @GetMapping("/page")
     public Map<String, Object> getBookPage(
             @RequestParam(defaultValue = "0") int page,
@@ -42,10 +42,8 @@ public class BookController {
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String type) {
 
-        // 按创建时间倒序排序
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createTime"));
 
-        // 动态组合查询条件
         Specification<Book> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             if (keyword != null && !keyword.trim().isEmpty()) {
@@ -63,9 +61,34 @@ public class BookController {
 
         Page<Book> bookPage = bookRepository.findAll(spec, pageable);
 
+        // 将 Book 转换为包含 coverUrl 的 Map，方便前端直接读取
+        List<Map<String, Object>> resultList = new ArrayList<>();
+        for (Book book : bookPage.getContent()) {
+            Map<String, Object> map = new HashMap<>();
+            map.put("id", book.getId());
+            map.put("title", book.getTitle());
+            map.put("author", book.getAuthor());
+            map.put("type", book.getType());
+            map.put("publisher", book.getPublisher());
+            map.put("stock", book.getStock());
+            map.put("status", book.getStatus());
+            map.put("price", book.getPrice());
+            map.put("days", book.getDays());
+            map.put("introduction", book.getIntroduction());
+
+            // 查询附件表，取第一张图作为封面
+            List<BookImage> images = bookImageRepository.findByBookId(book.getId());
+            if (!images.isEmpty()) {
+                map.put("coverUrl", images.get(0).getImageUrl());
+            } else {
+                map.put("coverUrl", null);
+            }
+            resultList.add(map);
+        }
+
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
-        result.put("data", bookPage.getContent());
+        result.put("data", resultList);
         result.put("total", bookPage.getTotalElements());
         result.put("totalPages", bookPage.getTotalPages());
         return result;
@@ -81,7 +104,6 @@ public class BookController {
             result.put("msg", "图书不存在");
             return result;
         }
-        // 查询附件表里的图片
         List<BookImage> images = bookImageRepository.findByBookId(id);
         result.put("code", 200);
         result.put("book", book);
@@ -91,29 +113,30 @@ public class BookController {
 
     // 3. 新增图书（带图片 + 自动生成副本）
     @PostMapping
-    @Transactional // 保证事务一致性（图书、图片、副本要么全成功，要么全失败）
+    @Transactional
     public Map<String, Object> addBook(@RequestBody Map<String, Object> payload) {
         Map<String, Object> result = new HashMap<>();
 
         try {
-            // 1. 保存图书基础信息
             Book book = new Book();
             book.setTitle((String) payload.get("title"));
             book.setAuthor((String) payload.get("author"));
             book.setType((String) payload.get("type"));
             book.setPublisher((String) payload.get("publisher"));
 
-            // 处理可能为空的数字类型
-            if(payload.get("days") != null) book.setDays(Integer.parseInt(payload.get("days").toString()));
-            if(payload.get("price") != null) book.setPrice(Double.parseDouble(payload.get("price").toString()));
-            if(payload.get("stock") != null) book.setStock(Integer.parseInt(payload.get("stock").toString()));
+            if(payload.get("days") != null && !payload.get("days").toString().isEmpty())
+                book.setDays(Integer.parseInt(payload.get("days").toString()));
+            if(payload.get("price") != null && !payload.get("price").toString().isEmpty())
+                book.setPrice(Double.parseDouble(payload.get("price").toString()));
+            if(payload.get("stock") != null && !payload.get("stock").toString().isEmpty())
+                book.setStock(Integer.parseInt(payload.get("stock").toString()));
 
             book.setIntroduction((String) payload.get("introduction"));
-            book.setStatus("正常"); // 默认状态
+            book.setStatus("正常");
 
             bookRepository.save(book);
 
-            // 2. 处理图片（前端传来的 coverUrl）
+            // 保存图片
             String coverUrl = (String) payload.get("coverUrl");
             if (coverUrl != null && !coverUrl.isEmpty()) {
                 BookImage image = new BookImage();
@@ -122,33 +145,33 @@ public class BookController {
                 bookImageRepository.save(image);
             }
 
-            // 3. 核心逻辑：根据库存 stock 自动生成对应数量的图书副本
+            // 自动生成对应数量的副本
             int stock = book.getStock() != null ? book.getStock() : 0;
             for (int i = 0; i < stock; i++) {
                 BookCopy copy = new BookCopy();
                 copy.setBookId(book.getId());
-                copy.setIsBorrowed(false); // 默认未借出
+                copy.setIsBorrowed(false);
                 bookCopyRepository.save(copy);
             }
 
             result.put("code", 200);
-            result.put("msg", "图书添加成功，已自动生成 " + stock + " 个副本");
+            result.put("msg", "图书添加成功");
         } catch (Exception e) {
             e.printStackTrace();
             result.put("code", 500);
             result.put("msg", "添加失败：" + e.getMessage());
-            // 抛出异常触发 @Transactional 回滚
-            throw new RuntimeException("添加图书失败");
+            throw new RuntimeException("添加图书失败"); // 触发回滚
         }
         return result;
     }
 
-    // 4. 修改图书（根据作业要求，不允许修改库存和状态）
+    // 4. 修改图书（根据要求，不修改库存和状态）
     @PutMapping("/update")
     @Transactional
-    public Map<String, Object> updateBook(@RequestBody Book bookData) {
+    public Map<String, Object> updateBook(@RequestBody Map<String, Object> payload) {
         Map<String, Object> result = new HashMap<>();
-        Book book = bookRepository.findById(bookData.getId()).orElse(null);
+        String id = (String) payload.get("id");
+        Book book = bookRepository.findById(id).orElse(null);
 
         if (book == null) {
             result.put("code", 404);
@@ -156,15 +179,35 @@ public class BookController {
             return result;
         }
 
-        // 只允许更新特定字段
-        book.setTitle(bookData.getTitle());
-        book.setAuthor(bookData.getAuthor());
-        book.setType(bookData.getType());
-        book.setPublisher(bookData.getPublisher());
-        book.setDays(bookData.getDays());
-        book.setPrice(bookData.getPrice());
+        // 只更新允许修改的字段
+        book.setTitle((String) payload.get("title"));
+        book.setAuthor((String) payload.get("author"));
+        book.setType((String) payload.get("type"));
+        book.setPublisher((String) payload.get("publisher"));
+
+        if(payload.get("days") != null && !payload.get("days").toString().isEmpty())
+            book.setDays(Integer.parseInt(payload.get("days").toString()));
+        if(payload.get("price") != null && !payload.get("price").toString().isEmpty())
+            book.setPrice(Double.parseDouble(payload.get("price").toString()));
 
         bookRepository.save(book);
+
+        // 如果前端传了新图片，更新附件表
+        String coverUrl = (String) payload.get("coverUrl");
+        if (coverUrl != null && !coverUrl.isEmpty()) {
+            List<BookImage> existingImages = bookImageRepository.findByBookId(id);
+            if (existingImages.isEmpty()) {
+                BookImage image = new BookImage();
+                image.setBookId(id);
+                image.setImageUrl(coverUrl);
+                bookImageRepository.save(image);
+            } else {
+                BookImage image = existingImages.get(0);
+                image.setImageUrl(coverUrl);
+                bookImageRepository.save(image);
+            }
+        }
+
         result.put("code", 200);
         result.put("msg", "修改成功");
         return result;

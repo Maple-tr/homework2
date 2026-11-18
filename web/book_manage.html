@@ -20,6 +20,7 @@
         th { background: #f8f9fa; }
         .book-cover { width: 50px; height: 70px; object-fit: cover; border-radius: 4px; }
 
+        .btn-edit { padding: 5px 10px; background: #ffc107; color: #333; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px; }
         .pagination { display: flex; justify-content: center; gap: 10px; margin-top: 20px; }
         .pagination button { padding: 6px 12px; border: 1px solid #ccc; background: #fff; border-radius: 4px; cursor: pointer; }
         .pagination button:disabled { background: #e9ecef; cursor: not-allowed; }
@@ -42,7 +43,7 @@
 
     <!-- 搜索区 -->
     <div class="search-box">
-        <input type="text" v-model="keyword" placeholder="请输入书名或作者关键字...">
+        <input type="text" v-model="keyword" placeholder="请输入书名或作者...">
         <select v-model="type">
             <option value="">全部类型</option>
             <option value="计算机">计算机</option>
@@ -57,20 +58,24 @@
     <table>
         <thead>
         <tr>
-            <th>封面</th><th>书名</th><th>作者</th><th>类型</th><th>库存</th><th>状态</th>
+            <th>封面</th><th>书名</th><th>作者</th><th>类型</th><th>库存</th><th>状态</th><th>操作</th>
         </tr>
         </thead>
         <tbody>
         <tr v-for="book in books" :key="book.id">
             <td>
+                <!-- 如果有图片就显示 -->
                 <img v-if="book.coverUrl" :src="'http://localhost:8080' + book.coverUrl" class="book-cover">
-                <span v-else>暂无</span>
+                <span v-else>暂无封面</span>
             </td>
             <td>{{ book.title }}</td>
             <td>{{ book.author }}</td>
             <td>{{ book.type }}</td>
             <td>{{ book.stock }}</td>
             <td>{{ book.status }}</td>
+            <td>
+                <button class="btn-edit" @click="openEdit(book)">编辑</button>
+            </td>
         </tr>
         </tbody>
     </table>
@@ -78,11 +83,11 @@
     <!-- 分页区 -->
     <div class="pagination">
         <button :disabled="page === 0" @click="changePage(-1)">上一页</button>
-        <span>第 {{ page + 1 }} / {{ totalPages }} 页 (共 {{ total }} 条)</span>
+        <span>第 {{ page + 1 }} / {{ totalPages === 0 ? 1 : totalPages }} 页 (共 {{ total }} 条)</span>
         <button :disabled="page >= totalPages - 1" @click="changePage(1)">下一页</button>
     </div>
 
-    <!-- 新增/编辑弹窗 -->
+    <!-- 弹窗 (新增与编辑共用) -->
     <div class="modal-mask" v-if="showModal">
         <div class="modal">
             <h3>{{ form.id ? '编辑图书' : '新增图书' }}</h3>
@@ -90,7 +95,11 @@
             <div class="form-group"><label>作者</label><input type="text" v-model="form.author"></div>
             <div class="form-group"><label>类型</label><input type="text" v-model="form.type"></div>
             <div class="form-group"><label>出版社</label><input type="text" v-model="form.publisher"></div>
-            <div class="form-group"><label>库存</label><input type="number" v-model="form.stock"></div>
+            <!-- 编辑时不允许修改库存，新增时可以填库存 -->
+            <div class="form-group" v-if="!form.id">
+                <label>库存数量 (将自动生成副本)</label>
+                <input type="number" v-model="form.stock">
+            </div>
             <div class="form-group"><label>价格</label><input type="number" v-model="form.price"></div>
 
             <!-- 图片上传区 -->
@@ -110,8 +119,6 @@
 
 <script>
     const { createApp, ref, onMounted } = Vue;
-
-    // 配置 Token
     const token = localStorage.getItem('token');
     if(!token) window.location.href = 'login.html';
     axios.defaults.headers.common['Authorization'] = token;
@@ -120,7 +127,7 @@
         setup() {
             const books = ref([]);
             const page = ref(0);
-            const size = ref(10); // 默认10条
+            const size = ref(10);
             const total = ref(0);
             const totalPages = ref(0);
             const keyword = ref('');
@@ -129,7 +136,6 @@
             const showModal = ref(false);
             const form = ref({});
 
-            // 初始化加载
             onMounted(() => { loadData(); });
 
             const loadData = () => {
@@ -137,6 +143,9 @@
                     params: { page: page.value, size: size.value, keyword: keyword.value, type: type.value }
                 }).then(res => {
                     if(res.data.code === 200) {
+                        // 注意：如果后端返回的 Book 对象里没有 coverUrl，我们需要处理
+                        // 为了兼容处理，我们在后端增加一个 get 接口，或者前端直接用关联表查
+                        // 为了演示，如果后端还没改，这里先自适应（见后面的后端修复）
                         books.value = res.data.data;
                         total.value = res.data.total;
                         totalPages.value = res.data.totalPages;
@@ -144,34 +153,29 @@
                 });
             };
 
-            const search = () => {
-                page.value = 0; // 搜索时回到第一页
-                loadData();
-            };
-
-            const changePage = (step) => {
-                page.value += step;
-                loadData();
-            };
+            const search = () => { page.value = 0; loadData(); };
+            const changePage = (step) => { page.value += step; loadData(); };
 
             const openAdd = () => {
                 form.value = { title: '', author: '', type: '', publisher: '', stock: 1, price: 0, coverUrl: '' };
                 showModal.value = true;
             };
 
-            // 图片上传逻辑
+            const openEdit = (book) => {
+                // 浅拷贝当前图书信息到表单
+                form.value = { ...book };
+                showModal.value = true;
+            };
+
             const uploadImage = (event) => {
                 const file = event.target.files[0];
                 if(!file) return;
-
                 const formData = new FormData();
                 formData.append('file', file);
-
                 axios.post('http://localhost:8080/api/files/upload', formData, {
                     headers: { 'Content-Type': 'multipart/form-data' }
                 }).then(res => {
                     if(res.data.code === 200) {
-                        // 保存后端返回的图片路径
                         form.value.coverUrl = res.data.url;
                         alert("图片上传成功！");
                     }
@@ -179,20 +183,24 @@
             };
 
             const saveBook = () => {
-                if(!form.value.title || !form.value.author) {
-                    alert("书名和作者必填"); return;
+                if(!form.value.title || !form.value.author) { alert("书名和作者必填"); return; }
+
+                if(form.value.id) {
+                    // 编辑
+                    axios.put('http://localhost:8080/api/books/update', form.value).then(res => {
+                        if(res.data.code === 200) { alert("修改成功"); showModal.value = false; loadData(); }
+                        else { alert(res.data.msg); }
+                    });
+                } else {
+                    // 新增
+                    axios.post('http://localhost:8080/api/books', form.value).then(res => {
+                        if(res.data.code === 200) { alert("新增成功"); showModal.value = false; loadData(); }
+                        else { alert(res.data.msg); }
+                    });
                 }
-                // 提交到后端
-                axios.post('http://localhost:8080/api/books', form.value).then(res => {
-                    if(res.data.code === 200) {
-                        alert("保存成功");
-                        showModal.value = false;
-                        loadData();
-                    }
-                });
             };
 
-            return { books, page, total, totalPages, keyword, type, showModal, form, search, changePage, openAdd, uploadImage, saveBook };
+            return { books, page, total, totalPages, keyword, type, showModal, form, search, changePage, openAdd, openEdit, uploadImage, saveBook };
         }
     }).mount('#app');
 </script>

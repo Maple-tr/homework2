@@ -38,21 +38,29 @@ public class LoanService {
 
         // 1. 查找是否有未借出的副本
         List<BookCopy> availableCopies = bookCopyRepository.findByBookIdAndIsBorrowedFalse(bookId);
+        BookCopy copy;
+
         if (availableCopies.isEmpty()) {
-            // 没有库存，提示去预约
-            return "NO_COPY";
+            if (book.getStock() != null && book.getStock() > 0) {
+                // 数据不一致（老数据）：有库存但没空闲副本，动态补一个
+                copy = new BookCopy();
+                copy.setBookId(bookId);
+                copy.setIsBorrowed(true); // 直接设为已借出
+                bookCopyRepository.save(copy);
+            } else {
+                return "NO_COPY";
+            }
+        } else {
+            copy = availableCopies.get(0);
+            copy.setIsBorrowed(true);
+            bookCopyRepository.save(copy);
         }
 
-        // 2. 取出一个副本，标记为已借出
-        BookCopy copy = availableCopies.get(0);
-        copy.setIsBorrowed(true);
-        bookCopyRepository.save(copy);
-
-        // 3. 扣减库存
+        // 2. 扣减库存
         book.setStock(book.getStock() - 1);
         bookRepository.save(book);
 
-        // 4. 生成借阅记录
+        // 3. 生成借阅记录
         Loan loan = new Loan();
         loan.setBookCopyId(copy.getId());
         loan.setBookId(bookId);
@@ -66,7 +74,7 @@ public class LoanService {
     }
 
     /**
-     * 还书逻辑 (修复为 2 个参数)
+     * 还书逻辑
      */
     @Transactional
     public String returnBook(String loanId, String copyId) {
@@ -101,6 +109,7 @@ public class LoanService {
                 Reservation first = reservations.get(0);
                 first.setStatus("已通知");
                 reservationRepository.save(first);
+                // 存入消息缓存，前端轮询时即可弹出
                 MESSAGE_CACHE.put(first.getUserId(), "您预约的图书《" + book.getTitle() + "》已有库存，请尽快借阅！");
             }
         }
