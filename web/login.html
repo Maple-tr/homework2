@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>图书馆系统 - 登录</title>
+    <!-- 引入 Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- 引入 Axios -->
+    <script src="https://cdn.bootcdn.net/ajax/libs/axios/1.6.7/axios.min.js"></script>
+    <style>
+        body { display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f0f2f5; margin: 0; font-family: 'Microsoft YaHei', sans-serif; }
+        .login-box { background: #fff; padding: 40px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 350px; }
+        h2 { text-align: center; color: #333; margin-bottom: 30px; }
+        .form-group { margin-bottom: 20px; }
+        input { width: 100%; padding: 12px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 6px; outline: none; transition: 0.3s; }
+        input:focus { border-color: #007bff; }
+        .btn { width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; transition: 0.3s; }
+        .btn:hover { background: #0056b3; }
+        .error-msg { color: #dc3545; font-size: 14px; text-align: center; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div class="login-box">
+        <h2>系统登录</h2>
+        <div class="error-msg" v-if="errorMsg">{{ errorMsg }}</div>
+        <div class="form-group">
+            <input type="text" v-model="username" placeholder="请输入用户名 (如 admin)">
+        </div>
+        <div class="form-group">
+            <input type="password" v-model="password" placeholder="请输入密码">
+        </div>
+        <button class="btn" @click="login" :disabled="loading">{{ loading ? '登录中...' : '登 录' }}</button>
+    </div>
+</div>
+
+<script>
+    const { createApp, ref } = Vue;
+
+    createApp({
+        setup() {
+            const username = ref('admin');
+            const password = ref('admin123');
+            const errorMsg = ref('');
+            const loading = ref(false);
+
+            const login = () => {
+                if(!username.value || !password.value) {
+                    errorMsg.value = '请输入账号和密码';
+                    return;
+                }
+                errorMsg.value = '';
+                loading.value = true;
+
+                axios.post('http://localhost:8080/api/users/login', {
+                    username: username.value,
+                    password: password.value
+                }).then(res => {
+                    if(res.data.code === 200) {
+                        // 登录成功，保存 Token 到 localStorage
+                        localStorage.setItem('token', res.data.token);
+                        // 跳转到首页
+                        window.location.href = 'index.html';
+                    } else {
+                        errorMsg.value = res.data.msg;
+                    }
+                }).catch(err => {
+                    errorMsg.value = '网络异常，请稍后再试';
+                }).finally(() => {
+                    loading.value = false;
+                });
+            };
+
+            return { username, password, errorMsg, loading, login };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>
