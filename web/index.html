@@ -8,22 +8,33 @@
     <style>
         body { background-color: #f0f2f5; margin: 0; padding: 20px; font-family: 'Microsoft YaHei', sans-serif; }
         .header { background: #fff; padding: 20px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .header h2 { margin: 0; color: #333; }
+        .btn-logout { padding: 8px 16px; background: #dc3545; color: white; border: none; border-radius: 6px; cursor: pointer; transition: 0.3s; }
+        .btn-logout:hover { background: #c82333; }
+
         .cards { display: flex; flex-wrap: wrap; gap: 20px; }
         .card { background: #fff; width: 200px; padding: 30px 20px; border-radius: 10px; text-align: center; cursor: pointer; font-weight: bold; color: #333; box-shadow: 0 2px 8px rgba(0,0,0,0.05); transition: 0.3s; user-select: none; }
         .card:hover { transform: translateY(-5px); box-shadow: 0 6px 16px rgba(0,0,0,0.1); color: #007bff; }
-        .btn-logout { padding: 8px 16px; background: #dc3545; color: white; border: none; border-radius: 6px; cursor: pointer; }
+
+        .loading { text-align: center; color: #666; margin-top: 50px; font-size: 18px; }
     </style>
 </head>
 <body>
 <div id="app">
-    <div class="header">
-        <h2>欢迎您，{{ userInfo.name }} ({{ userInfo.role }})</h2>
-        <button class="btn-logout" @click="logout">退出登录</button>
-    </div>
+    <!-- 加载中状态 -->
+    <div class="loading" v-if="loading">正在加载用户信息...</div>
 
-    <div class="cards">
-        <div class="card" v-for="menu in menus" :key="menu.name" @click="go(menu.path)">
-            {{ menu.name }}
+    <!-- 主要内容 -->
+    <div v-else>
+        <div class="header">
+            <h2>欢迎您，{{ userInfo.name }} ({{ userInfo.role }})</h2>
+            <button class="btn-logout" @click="logout">退出登录</button>
+        </div>
+
+        <div class="cards">
+            <div class="card" v-for="menu in menus" :key="menu.name" @click="go(menu.path)">
+                {{ menu.name }}
+            </div>
         </div>
     </div>
 </div>
@@ -31,14 +42,16 @@
 <script>
     const { createApp, ref, onMounted } = Vue;
 
-    // 全局配置 Axios 拦截器：每次请求自动带上 Token
+    // 1. 检查 Token
     const token = localStorage.getItem('token');
     if(!token) {
         window.location.href = 'login.html';
     }
+
+    // 2. 全局配置 Axios (每次请求自动带上 Token)
     axios.defaults.headers.common['Authorization'] = token;
 
-    // 拦截 401 响应
+    // 3. 全局拦截 401 响应 (Token 失效自动退回登录页)
     axios.interceptors.response.use(res => res, err => {
         if(err.response && err.response.status === 401) {
             localStorage.removeItem('token');
@@ -49,23 +62,49 @@
 
     createApp({
         setup() {
-            const userInfo = ref({ name: '加载中...', role: '' });
+            const userInfo = ref({ name: '', role: '' });
             const menus = ref([]);
+            const loading = ref(true);
 
             const loadUserInfo = () => {
-                // 这里为了演示简单，我们直接从登录缓存里拿（真实情况应该有一个 /api/users/info 接口）
-                // 由于我们之前后端登录只返回了 Token，没返回 User 信息，
-                // 但我们在拦截器里可以通过 Token 拿。
-                // 为了快速跑通，这里先写死测试，下一步补上后端 info 接口。
-                userInfo.value = { name: 'Admin', role: '管理员' };
+                axios.get('http://localhost:8080/api/users/info').then(res => {
+                    if (res.data.code === 200) {
+                        userInfo.value = res.data.data;
 
-                // 模拟菜单
-                menus.value = [
-                    { name: '图书管理', path: 'book_manage.html' },
-                    { name: '借阅中心', path: 'borrow.html' },
-                    { name: '用户查询', path: 'user_query.html' },
-                    { name: '操作日志', path: 'logs.html' }
-                ];
+                        // 根据角色动态生成菜单卡片
+                        const role = userInfo.value.role;
+                        if (role === '管理员') {
+                            menus.value = [
+                                { name: '用户信息查询', path: 'user_query.html' },
+                                { name: '图书管理', path: 'book_manage.html' },
+                                { name: '借阅中心', path: 'borrow.html' },
+                                { name: '借阅记录', path: 'loan_records.html' },
+                                { name: '操作日志', path: 'logs.html' }
+                            ];
+                        } else if (role === '操作员') {
+                            menus.value = [
+                                { name: '图书管理', path: 'book_manage.html' },
+                                { name: '借阅中心', path: 'borrow.html' },
+                                { name: '个人借阅查询', path: 'loan_records.html' }
+                            ];
+                        } else if (role === '教师') {
+                            menus.value = [
+                                { name: '借阅中心', path: 'borrow.html' },
+                                { name: '个人借阅查询', path: 'loan_records.html' },
+                                { name: '推荐图书', path: 'recommend.html' }
+                            ];
+                        } else if (role === '学生') {
+                            menus.value = [
+                                { name: '借阅中心', path: 'borrow.html' },
+                                { name: '个人借阅查询', path: 'loan_records.html' }
+                            ];
+                        }
+                    }
+                }).catch(err => {
+                    console.error("获取信息失败", err);
+                }).finally(() => {
+                    loading.value = false;
+                });
             };
 
             const logout = () => {
@@ -74,6 +113,7 @@
             };
 
             const go = (path) => {
+                // 这里先简单跳转，如果页面还没开发，会报 404
                 window.location.href = path;
             };
 
@@ -81,7 +121,7 @@
                 loadUserInfo();
             });
 
-            return { userInfo, menus, logout, go };
+            return { userInfo, menus, loading, logout, go };
         }
     }).mount('#app');
 </script>

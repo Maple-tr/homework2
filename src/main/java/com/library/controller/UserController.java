@@ -4,6 +4,7 @@ import com.library.dto.LoginRequest;
 import com.library.entity.User;
 import com.library.repository.UserRepository;
 import com.library.service.UserService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -44,19 +45,33 @@ public class UserController {
         return result;
     }
 
-    // 2. 服务端分页 + 多条件组合查询
-    // 前端调用示例: /api/users/page?page=0&size=10&keyword=张&role=学生
+    // 2. 获取当前登录用户信息 (用于前端首页渲染)
+    @GetMapping("/info")
+    public Map<String, Object> getUserInfo(HttpServletRequest request) {
+        String token = request.getHeader("Authorization");
+        User user = UserService.TOKEN_CACHE.get(token);
+
+        Map<String, Object> result = new HashMap<>();
+        if (user != null) {
+            result.put("code", 200);
+            result.put("data", user);
+        } else {
+            result.put("code", 401);
+            result.put("msg", "未登录");
+        }
+        return result;
+    }
+
+    // 3. 服务端分页 + 多条件组合查询
     @GetMapping("/page")
     public Map<String, Object> getUserPage(
-            @RequestParam(defaultValue = "0") int page,       // 第几页（从0开始）
-            @RequestParam(defaultValue = "10") int size,      // 每页条数
-            @RequestParam(required = false) String keyword,   // 模糊搜索（姓名/手机号）
-            @RequestParam(required = false) String role       // 精确匹配角色
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String role
     ) {
-        // 按创建时间倒序排序，分页条件封装
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createTime"));
 
-        // 核心：使用 JPA 的 Specification 动态拼接 SQL
         Specification<User> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             if (keyword != null && !keyword.trim().isEmpty()) {
@@ -76,9 +91,9 @@ public class UserController {
 
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
-        result.put("data", userPage.getContent());     // 当前页数据
-        result.put("total", userPage.getTotalElements()); // 总条数
-        result.put("totalPages", userPage.getTotalPages()); // 总页数
+        result.put("data", userPage.getContent());
+        result.put("total", userPage.getTotalElements());
+        result.put("totalPages", userPage.getTotalPages());
         return result;
     }
 }
